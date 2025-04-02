@@ -1,6 +1,6 @@
 # README.md
 
-# Flask Fomantic-UI Web Application
+# LDAP Password Reset Portal
 
 ## Overview
 A Flask / Python / Fomantic UI script that facilitates Active Directory password reset requests through a secure workflow involving a sponsor system.
