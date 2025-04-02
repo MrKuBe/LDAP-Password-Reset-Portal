@@ -9,10 +9,13 @@ A Flask / Python / Fomantic UI script that facilitates Active Directory password
 
 ### Login Windows
 <img width="385" alt="2025-04-02_17h22_11" src="https://github.com/user-attachments/assets/0edcb4d9-c50e-492d-960a-e600f7cecf03" />
+
 ### Menu
 <img width="679" alt="2025-04-02_17h22_32" src="https://github.com/user-attachments/assets/984ab17e-d3b2-452a-b3b5-ada0dcd32e2d" />
+
 ### Password Reset Page
 <img width="678" alt="2025-04-02_17h22_50" src="https://github.com/user-attachments/assets/a6d462f7-a4f1-4f9e-8082-3499510aed06" />
+
 ### Notification sent after reset
 <img width="563" alt="2025-04-02_17h23_51" src="https://github.com/user-attachments/assets/9e3c8c44-ce44-4ce5-a4b0-3f52aafe8353" />
 
