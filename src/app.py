@@ -151,6 +151,65 @@ def verify_user_service(conn: Connection, samAccountName: str, serviceCode: str)
         logging.error(f"Error verifying user service: {str(e)}")
         return False
 
+def is_operator(conn: Connection, username: str) -> bool:
+    """Check if user is member of the operator group."""
+    try:
+        # Get user's DN first
+        search_filter = f'(sAMAccountName={escape_filter_chars(username)})'
+        conn.search(
+            config['search_base'],
+            search_filter,
+            search_scope=SUBTREE,
+            attributes=['memberOf']
+        )
+        
+        if not conn.entries:
+            log_debug(f"User {username} not found")
+            return False
+        
+        # Check if user is member of operator group
+        member_of = conn.entries[0].memberOf.values if hasattr(conn.entries[0], 'memberOf') else []
+        operator_group = config['ldap']['operatorGroup']
+        
+        log_debug(f"User groups: {member_of}")
+        log_debug(f"Required group: {operator_group}")
+        
+        return operator_group in member_of
+        
+    except Exception as e:
+        logging.error(f"Error checking operator status: {str(e)}")
+        return False
+
+def is_vip_user(conn: Connection, username: str) -> bool:
+    """Check if user is member of VIP group or has admin privileges."""
+    try:
+        search_filter = f'(sAMAccountName={escape_filter_chars(username)})'
+        conn.search(
+            config['search_base'],
+            search_filter,
+            search_scope=SUBTREE,
+            attributes=['memberOf', 'adminCount']
+        )
+        
+        if not conn.entries:
+            log_debug(f"User {username} not found")
+            return False
+        
+        # Check VIP group membership
+        member_of = conn.entries[0].memberOf.values if hasattr(conn.entries[0], 'memberOf') else []
+        vip_group = config['ldap']['vipGroup']
+        is_vip = vip_group in member_of
+        
+        # Check admin privileges
+        has_admin = hasattr(conn.entries[0], 'adminCount') and conn.entries[0].adminCount.value == 1
+        
+        log_debug(f"User {username} - VIP: {is_vip}, Admin: {has_admin}")
+        return is_vip or has_admin
+        
+    except Exception as e:
+        logging.error(f"Error checking VIP status: {str(e)}")
+        return False
+
 def create_json(parrain: dict, user_details: dict) -> bool:
     """
     Create JSON file for password reset request with specific filename format:
@@ -244,11 +303,16 @@ def login():
         try:
             conn = get_ldap_connection(username, password)
             if conn and conn.bind():
-                session['username'] = username
-                session['password'] = password  # Add this line
-                session['email'] = f"{username}{config['ldap']['emailDomain']}"
-                flash('Login successful!', 'success')
-                return redirect(url_for('index'))
+                # Check if user is an operator
+                if is_operator(conn, username):
+                    session['username'] = username
+                    session['password'] = password
+                    session['email'] = f"{username}{config['ldap']['emailDomain']}"
+                    flash('Login successful!', 'success')
+                    return redirect(url_for('index'))
+                else:
+                    flash('Access denied. You must be a member of the operator group. Please contact IT Service.', 'error')
+                    logging.warning(f"Unauthorized access attempt by {username} - not a member of operator group")
             else:
                 flash('Invalid credentials.', 'error')
         except Exception as e:
@@ -276,7 +340,6 @@ def reset_password():
         }
 
         try:
-            # Get LDAP connection using parrain's credentials
             conn = get_ldap_connection(session['username'], session.get('password', ''))
             if not conn:
                 flash('Unable to verify user information. Please try again.', 'error')
@@ -285,6 +348,12 @@ def reset_password():
             # Check if target user exists
             if not check_user_exists(conn, user_details['user_samAccountName']):
                 flash('Target user does not exist.', 'error')
+                return render_template('reset_password.html', form=form)
+
+            # Check if target user is VIP or admin
+            if is_vip_user(conn, user_details['user_samAccountName']):
+                flash('Password reset not allowed for VIP or admin users. Please contact IT Service.', 'error')
+                logging.warning(f"Attempt to reset password for VIP/admin user {user_details['user_samAccountName']} by {parrain['samAccountName']}")
                 return render_template('reset_password.html', form=form)
 
             # Verify employee ID matches the user
