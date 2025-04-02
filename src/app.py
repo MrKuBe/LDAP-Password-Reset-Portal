@@ -12,6 +12,8 @@ import logging
 import time
 import uuid
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-secret-key')
@@ -102,6 +104,53 @@ def get_ldap_connection(samAccountName: str, password: str, max_retries: int = 3
     
     return None
 
+def check_user_exists(conn: Connection, samAccountName: str) -> bool:
+    """Check if user exists in AD."""
+    search_filter = f'(sAMAccountName={escape_filter_chars(samAccountName)})'
+    conn.search(
+        config['search_base'],
+        search_filter,
+        search_scope=SUBTREE,
+        attributes=['employeeID']
+    )
+    return len(conn.entries) > 0
+
+def verify_employee_id(conn: Connection, samAccountName: str, employeeID: str) -> bool:
+    """Verify if employeeID matches the user."""
+    search_filter = f'(&(sAMAccountName={escape_filter_chars(samAccountName)})(employeeID={escape_filter_chars(employeeID)}))'
+    conn.search(
+        config['search_base'],
+        search_filter,
+        search_scope=SUBTREE,
+        attributes=['employeeID']
+    )
+    return len(conn.entries) > 0
+
+def verify_user_service(conn: Connection, samAccountName: str, serviceCode: str) -> bool:
+    """Verify if user belongs to the specified service code (department)."""
+    try:
+        search_filter = f'(sAMAccountName={escape_filter_chars(samAccountName)})'
+        conn.search(
+            config['search_base'],
+            search_filter,
+            search_scope=SUBTREE,
+            attributes=['department']
+        )
+        
+        if len(conn.entries) == 0:
+            log_debug(f"User {samAccountName} not found")
+            return False
+            
+        user_department = conn.entries[0].department.value
+        log_debug(f"User department: {user_department}, Required service: {serviceCode}")
+        
+        # Check if department matches service code
+        return user_department == serviceCode
+        
+    except Exception as e:
+        logging.error(f"Error verifying user service: {str(e)}")
+        return False
+
 def create_json(parrain: dict, user_details: dict) -> bool:
     """
     Create JSON file for password reset request with specific filename format:
@@ -141,6 +190,44 @@ def create_json(parrain: dict, user_details: dict) -> bool:
         logging.error(f"Error creating password reset request: {str(e)}")
         return False
 
+def send_notification_email(parrain: dict, user_details: dict) -> bool:
+    """Send notification email to parrain and IT service."""
+    try:
+        # Create message for parrain
+        subject = f"Password reset request for {user_details['user_samAccountName']}"
+        body = f"""
+        Hello {parrain['samAccountName']},
+        
+        A password reset request has been submitted with the following details:
+        - User: {user_details['user_samAccountName']}
+        - Service Code: {user_details['serviceCode']}
+        - Employee ID: {user_details['employeeID']}
+        
+        The IT service has been notified and will process your request.
+        """
+        
+        # Create email message
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = config['smtp']['fromAddress']
+        msg['To'] = parrain['email']
+        msg['Cc'] = config['itServiceEmail']
+        
+        # Connect to SMTP server and send
+        with smtplib.SMTP(config['smtp']['server'], config['smtp']['port']) as server:
+            if config['smtp']['use_tls']:
+                server.starttls()
+            
+            recipients = [parrain['email'], config['itServiceEmail']]
+            server.sendmail(config['smtp']['fromAddress'], recipients, msg.as_string())
+            
+        log_debug(f"Notification email sent to {parrain['email']} and {config['itServiceEmail']}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error sending notification email: {str(e)}")
+        return False
+
 @app.route('/')
 def index():
     if 'username' not in session:
@@ -158,6 +245,7 @@ def login():
             conn = get_ldap_connection(username, password)
             if conn and conn.bind():
                 session['username'] = username
+                session['password'] = password  # Add this line
                 session['email'] = f"{username}{config['ldap']['emailDomain']}"
                 flash('Login successful!', 'success')
                 return redirect(url_for('index'))
@@ -186,12 +274,43 @@ def reset_password():
             'samAccountName': session['username'],
             'email': session['email']
         }
-        
-        # Process password reset request
-        create_json(parrain, user_details)
-        flash('Password reset request submitted successfully!', 'success')
-        return redirect(url_for('index'))
-    
+
+        try:
+            # Get LDAP connection using parrain's credentials
+            conn = get_ldap_connection(session['username'], session.get('password', ''))
+            if not conn:
+                flash('Unable to verify user information. Please try again.', 'error')
+                return render_template('reset_password.html', form=form)
+
+            # Check if target user exists
+            if not check_user_exists(conn, user_details['user_samAccountName']):
+                flash('Target user does not exist.', 'error')
+                return render_template('reset_password.html', form=form)
+
+            # Verify employee ID matches the user
+            if not verify_employee_id(conn, user_details['user_samAccountName'], user_details['employeeID']):
+                flash('Employee ID does not match the specified user.', 'error')
+                return render_template('reset_password.html', form=form)
+
+            # Verify user's service code matches department
+            if not verify_user_service(conn, user_details['user_samAccountName'], user_details['serviceCode']):
+                flash('Service code does not match user\'s department.', 'error')
+                return render_template('reset_password.html', form=form)
+
+            # All checks passed, create the reset request
+            if create_json(parrain, user_details):
+                if send_notification_email(parrain, user_details):
+                    flash('Password reset request submitted and notifications sent!', 'success')
+                else:
+                    flash('Request submitted but email notification failed.', 'warning')
+                return redirect(url_for('index'))
+            else:
+                flash('Error creating password reset request.', 'error')
+
+        except Exception as e:
+            logging.error(f"Error processing reset request: {str(e)}")
+            flash('An error occurred while processing your request.', 'error')
+            
     return render_template('reset_password.html', form=form)
 
 @app.route('/logout')
