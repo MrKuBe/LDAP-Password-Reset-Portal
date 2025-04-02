@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="ui segment">
+    <h1 class="ui header">Welcome, {{ session.username }}</h1>
+    <p>Select an action from the menu above to begin.</p>
+    
+    <div class="ui cards">
+        <div class="card">
+            <div class="content">
+                <div class="header">Reset Password</div>
+                <div class="description">
+                    Reset a user's password by providing their details
+                </div>
+            </div>
+            <div class="extra content">
+                <a href="{{ url_for('reset_password') }}" class="ui blue button">
+                    <i class="key icon"></i>
+                    Reset Password
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

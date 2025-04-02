@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} - Password Reset</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fomantic-ui@2.9.3/dist/semantic.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+</head>
+<body>
+    {% if session.username %}
+    <div class="ui top fixed menu">
+        <div class="item">
+            <i class="key icon"></i> Password Reset Tool
+        </div>
+        <a href="{{ url_for('index') }}" class="item">Home</a>
+        <a href="{{ url_for('reset_password') }}" class="item">Reset Password</a>
+        <div class="right menu">
+            <div class="item">
+                <i class="user icon"></i> {{ session.username }}
+            </div>
+            <a href="{{ url_for('logout') }}" class="item">
+                <i class="sign out icon"></i> Logout
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="ui container" style="margin-top: 6em;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="ui {{ 'positive' if category == 'success' else 'negative' }} message">
+                        <p>{{ message }}</p>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer>
+        <p>&copy; {{ current_year }} Your Company</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fomantic-ui@2.9.3/dist/semantic.min.js"></script>
+    <script src="{{ url_for('static', filename='js/custom.js') }}"></script>
+</body>
+</html>
