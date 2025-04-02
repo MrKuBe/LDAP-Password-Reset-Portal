@@ -210,6 +210,25 @@ def is_vip_user(conn: Connection, username: str) -> bool:
         logging.error(f"Error checking VIP status: {str(e)}")
         return False
 
+def get_user_givenname(conn: Connection, username: str) -> str:
+    """Get user's given name from AD."""
+    try:
+        search_filter = f'(sAMAccountName={escape_filter_chars(username)})'
+        conn.search(
+            config['search_base'],
+            search_filter,
+            search_scope=SUBTREE,
+            attributes=['givenName']
+        )
+        
+        if conn.entries and hasattr(conn.entries[0], 'givenName'):
+            return conn.entries[0].givenName.value
+        return username
+        
+    except Exception as e:
+        logging.error(f"Error getting user givenName: {str(e)}")
+        return username
+
 def create_json(parrain: dict, user_details: dict) -> bool:
     """
     Create JSON file for password reset request with specific filename format:
@@ -308,11 +327,12 @@ def login():
                     session['username'] = username
                     session['password'] = password
                     session['email'] = f"{username}{config['ldap']['emailDomain']}"
+                    # Add given name to session
+                    session['givenname'] = get_user_givenname(conn, username)
                     flash('Login successful!', 'success')
                     return redirect(url_for('index'))
                 else:
-                    flash('Access denied. You must be a member of the operator group. Please contact IT Service.', 'error')
-                    logging.warning(f"Unauthorized access attempt by {username} - not a member of operator group")
+                    flash('Access denied. You must be a member of the operator group.', 'error')
             else:
                 flash('Invalid credentials.', 'error')
         except Exception as e:
@@ -343,28 +363,28 @@ def reset_password():
             conn = get_ldap_connection(session['username'], session.get('password', ''))
             if not conn:
                 flash('Unable to verify user information. Please try again.', 'error')
-                return render_template('reset_password.html', form=form)
+                return render_template('reset_password.html', form=form, config=config)
 
             # Check if target user exists
             if not check_user_exists(conn, user_details['user_samAccountName']):
                 flash('Target user does not exist.', 'error')
-                return render_template('reset_password.html', form=form)
+                return render_template('reset_password.html', form=form, config=config)
 
             # Check if target user is VIP or admin
             if is_vip_user(conn, user_details['user_samAccountName']):
                 flash('Password reset not allowed for VIP or admin users. Please contact IT Service.', 'error')
                 logging.warning(f"Attempt to reset password for VIP/admin user {user_details['user_samAccountName']} by {parrain['samAccountName']}")
-                return render_template('reset_password.html', form=form)
+                return render_template('reset_password.html', form=form, config=config)
 
             # Verify employee ID matches the user
             if not verify_employee_id(conn, user_details['user_samAccountName'], user_details['employeeID']):
                 flash('Employee ID does not match the specified user.', 'error')
-                return render_template('reset_password.html', form=form)
+                return render_template('reset_password.html', form=form, config=config)
 
             # Verify user's service code matches department
             if not verify_user_service(conn, user_details['user_samAccountName'], user_details['serviceCode']):
                 flash('Service code does not match user\'s department.', 'error')
-                return render_template('reset_password.html', form=form)
+                return render_template('reset_password.html', form=form, config=config)
 
             # All checks passed, create the reset request
             if create_json(parrain, user_details):
@@ -380,7 +400,7 @@ def reset_password():
             logging.error(f"Error processing reset request: {str(e)}")
             flash('An error occurred while processing your request.', 'error')
             
-    return render_template('reset_password.html', form=form)
+    return render_template('reset_password.html', form=form, config=config)
 
 @app.route('/logout')
 def logout():
