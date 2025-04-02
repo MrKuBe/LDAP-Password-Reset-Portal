@@ -3,7 +3,7 @@
 # Flask Fomantic-UI Web Application
 
 ## Overview
-This project is a web application built using Flask for the backend and Fomantic-UI for the frontend. It serves as a template for creating responsive web applications with a clean and modern design.
+A Flask / Python / Fomantic UI script that facilitates Active Directory password reset requests through a secure workflow involving a sponsor system.
 
 ## Project Structure
 - `src/app.py`: Main entry point of the Flask application.
